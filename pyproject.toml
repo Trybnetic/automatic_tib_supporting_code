@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "tib-model"
+version = "0.1.0"
+description = ""
+authors = ["Marc Weitz <marc.weitz@uit.no>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.11"
+ipython = "^8.7.0"
+notebook = "^6.5.2"
+pandas = "^1.5.2"
+numpy = "^1.23.5"
+tqdm = "^4.64.1"
+scikit-learn = "^1.2.0"
+actiaug = { git = "https://github.com/Trybnetic/actiaug", branch = "main" }
+keras = "^3.6.0"
+tensorflow = "^2.18.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
