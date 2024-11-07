@@ -27,6 +27,9 @@ datasets = [
 ]
 
 for dataset_name, in_path, out_path in datasets:
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+
     calibration = pd.read_csv(in_path + "calibration_error.txt", sep=";")
     for _, row in tqdm(calibration.iterrows(), desc=dataset_name, total=len(calibration)):
         # Load relevant data from calibration file
