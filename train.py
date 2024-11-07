@@ -11,7 +11,7 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split, KFold
 import keras
 from keras import Sequential
-from keras.layers import Embedding, Masking, LSTM, Dense
+from keras.layers import Embedding, Masking, LSTM, Dense, Input
 from keras.optimizers import Adam
 from keras.losses import BinaryCrossentropy
 from keras.callbacks import EarlyStopping
@@ -106,7 +106,7 @@ early_stopping = EarlyStopping(patience=2,verbose=1)
 
 for dataset, base_path in datasets:
     files = np.array([os.path.join(base_path, file) for file in os.listdir(base_path)])
-
+    
     # Calculate mean and std for normalization
     start = time.time()
     x, _, mask = load(files, return_full_ts=True)
@@ -147,7 +147,8 @@ for dataset, base_path in datasets:
 
                 # Prep model
                 model = Sequential()
-                model.add(Masking(mask_value=0., input_shape=(None, x_train.shape[2])))
+                model.add(Input(shape=(None, x_train.shape[2])))
+                model.add(Masking(mask_value=0.))
                 for _ in range(n_layer):
                     model.add(LSTM(hidden_size, dropout=.5, return_sequences=True))
                 model.add(Dense(1, activation="sigmoid"))
@@ -173,8 +174,8 @@ for dataset, base_path in datasets:
                 full_loss, full_accuracy = model.evaluate(x=x_test_full, y=y_test_full, verbose=0)
                 print(f"Results on full test set: loss = {full_loss:.2f}, accuracy = {full_accuracy:.2f}")
 
-                with open(f"result.csv", "a") as f:
+                with open(f"results.csv", "a") as f:
                     f.write(f'{dataset},{ii},{n_layer},{hidden_size},{test_loss},{test_accuracy},{full_loss},{full_accuracy}\n')
 
-                model.save(f'models/{dataset}/lstm_{n_layer}_{hidden_size}.h5')
+                model.save(f'models/{dataset}/lstm_{n_layer}_{hidden_size}.keras')
 
