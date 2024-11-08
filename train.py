@@ -4,6 +4,8 @@ This script trains the keras models
 import random
 import time 
 import os
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
+# os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import numpy as np
 import pandas as pd
@@ -30,18 +32,17 @@ def calculate_enmo(data):
 
 
 def horizontal_angle(data):
-    return np.arctan(np.sqrt(data["X"]**2 + data["Z"]**2) / data["Y"])
+    return np.abs(np.arctan(np.sqrt(data["X"]**2 + data["Z"]**2) / data["Y"]))
 
 
-def load(files, n_samples=5, train=False, return_full_ts=False):
+def load(files, train_cols, n_samples=5, train=False, return_full_ts=False):
     res = []
     for file in tqdm(files, desc="Load data"):  
         data = pd.read_csv(file, index_col=0)
         data["ENMO"] = calculate_enmo(data[["Y", "X", "Z"]])
         data["HorAngle"] = horizontal_angle(data[["Y", "X", "Z"]])
 
-        # x_all = np.expand_dims(data[["Y", "X", "Z"]].values, axis=0)
-        x_all = np.expand_dims(data[["ENMO", "HorAngle"]].values, axis=0)
+        x_all = np.expand_dims(data[train_cols].values, axis=0)
         y_all = np.expand_dims(data[["is_in_bed"]].values, axis=0)
 
         if return_full_ts:
@@ -94,88 +95,101 @@ np.random.seed(1)
 keras.utils.set_random_seed(1)
 
 # Define conditions 
-hidden_sizes = [1,2,4,8]
-n_layers = [1,2,4]
+hidden_sizes = [1, 2, 4, 8, 16]
+n_layers = [1, 2, 4]
 datasets = [
     ("tu7_tib", "1min_data/tib_dataset"),
     ("tu7_accelerometer", "1min_data/accelerometer_dataset")
+]
+result_path = "results.csv"
+training_conditions = [
+    ["ENMO", "HorAngle"],
+    ["Y", "X", "Z", "HorAngle"],
+    ["Y", "X", "Z", "ENMO", "HorAngle"],
+    ["Y", "X", "Z"]
 ]
 
 early_stopping = EarlyStopping(patience=2,verbose=1)
 
 
-for dataset, base_path in datasets:
-    files = np.array([os.path.join(base_path, file) for file in os.listdir(base_path)])
-    
-    # Calculate mean and std for normalization
-    start = time.time()
-    x, _, mask = load(files, return_full_ts=True)
-    means, stds = x[mask].mean(axis=0), x[mask].std(axis=0)
-    print(f"Calculated means {means} and stds {stds} in {(time.time() - start)/60:.2f}min.")
-    del x, mask, start
+# Create new files and folders
+with open(result_path, "w") as f:
+    f.write(f'dataset,train_cols,fold,n_layers,hidden_size,test_loss,test_accuracy,test_precision,test_recallfull_loss,full_accuracy,full_precision,full_recallmodel\n')
 
+for train_cols in training_conditions:
+    for dataset, base_path in datasets:
+        col_dir = "_".join(train_cols)
+        model_dir = f"models/{col_dir}/{dataset}/"
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
 
-    with open(f"results.csv", "w") as f:
-        f.write(f'dataset,fold,n_layers,hidden_size,test_loss,test_accuracy,full_loss,full_accuracy\n')
-
-    if not os.path.exists(f"models/{dataset}/"):
-        os.makedirs(f"models/{dataset}/")
-
-    kf = KFold(n_splits=10)
-    for ii, (train_idx, test_idx) in enumerate(kf.split(files)):
-        print(f"Start processing fold {ii+1}")
-        train_files, valid_files = train_test_split(files[train_idx], train_size=.8)
-        test_files = files[test_idx]
-
+        files = np.array([os.path.join(base_path, file) for file in os.listdir(base_path)])
+        
+        # Calculate mean and std for normalization
         start = time.time()
-        # Train data
-        x_train, y_train, mask_train = load(train_files, train=True, n_samples=100)
-        x_train[mask_train] = normalize(x_train[mask_train], means, stds)
+        x, _, mask = load(files, train_cols, return_full_ts=True)
+        means, stds = x[mask].mean(axis=0), x[mask].std(axis=0)
+        print(f"Calculated means {means} and stds {stds} in {(time.time() - start)/60:.2f}min.")
+        del x, mask, start
 
-        # Validation data
-        x_valid, y_valid, mask_valid = load(valid_files, train=False, n_samples=30)
-        x_valid[mask_valid] = normalize(x_valid[mask_valid], means, stds)
+        kf = KFold(n_splits=10)
+        for ii, (train_idx, test_idx) in enumerate(kf.split(files)):
+            print(f"Start processing fold {ii+1}")
+            train_files, valid_files = train_test_split(files[train_idx], train_size=.8)
+            test_files = files[test_idx]
 
-        # Test data
-        x_test, y_test, mask_test = load(test_files, train=False, n_samples=30)
-        x_test_full, y_test_full, mask_test_full = load(test_files, return_full_ts=True)
-        x_test[mask_test] = normalize(x_test[mask_test], means, stds)
-        print(f"Loaded data in {time.time() - start:.2f}s.")
+            start = time.time()
+            # Train data
+            x_train, y_train, mask_train = load(train_files, train_cols, train=True, n_samples=100)
+            x_train[mask_train] = normalize(x_train[mask_train], means, stds)
 
-        for hidden_size in hidden_sizes:
-            for n_layer in n_layers:
+            # Validation data
+            x_valid, y_valid, mask_valid = load(valid_files, train_cols, train=False, n_samples=30)
+            x_valid[mask_valid] = normalize(x_valid[mask_valid], means, stds)
 
-                # Prep model
-                model = Sequential()
-                model.add(Input(shape=(None, x_train.shape[2])))
-                model.add(Masking(mask_value=0.))
-                for _ in range(n_layer):
-                    model.add(LSTM(hidden_size, dropout=.5, return_sequences=True))
-                model.add(Dense(1, activation="sigmoid"))
-                model.compile(
-                    optimizer=Adam(1e-3), 
-                    loss="binary_crossentropy",
-                    metrics=["binary_accuracy"]
+            # Test data
+            x_test, y_test, mask_test = load(test_files, train_cols, train=False, n_samples=30)
+            x_test_full, y_test_full, mask_test_full = load(test_files, train_cols, return_full_ts=True)
+            x_test[mask_test] = normalize(x_test[mask_test], means, stds)
+            print(f"Loaded data in {time.time() - start:.2f}s.")
+
+            for hidden_size in hidden_sizes:
+                for n_layer in n_layers:
+
+                    print(f"Start training with {n_layer} layer and a hidden size of {hidden_size}.")
+
+                    # Prep model
+                    model = Sequential()
+                    model.add(Input(shape=(None, x_train.shape[2])))
+                    model.add(Masking(mask_value=0.)) #, input_shape=(None, x_train.shape[2])))
+                    for _ in range(n_layer):
+                        model.add(LSTM(hidden_size, dropout=.5, return_sequences=True))
+                    model.add(Dense(1, activation="sigmoid"))
+                    model.compile(
+                        optimizer=Adam(1e-3), 
+                        loss="binary_crossentropy",
+                        metrics=["binary_accuracy", "precision", "recall"]
+                        )
+
+                    history = model.fit(
+                        x=x_train,
+                        y=y_train,
+                        batch_size=8,
+                        epochs=100,
+                        callbacks=[early_stopping],
+                        validation_data=(x_valid, y_valid),
+                        shuffle=True
                     )
 
-                history = model.fit(
-                    x=x_train,
-                    y=y_train,
-                    batch_size=8,
-                    epochs=100,
-                    callbacks=[early_stopping],
-                    validation_data=(x_valid, y_valid),
-                    shuffle=True
-                )
+                    # Evaluate model
+                    test_loss, test_accuracy, test_precision, test_recall = model.evaluate(x=x_test, y=y_test, verbose=0)
+                    print(f"Results on sampled test set: loss = {test_loss:.2f}, accuracy = {test_accuracy:.2f}, precision = {test_precision:.2f}, recall = {test_recall:.2f}")
+                    full_loss, full_accuracy, full_precision, full_recall = model.evaluate(x=x_test_full, y=y_test_full, verbose=0)
+                    print(f"Results on full test set: loss = {full_loss:.2f}, accuracy = {full_accuracy:.2f}, precision = {full_precision:.2f}, recall = {full_recall:.2f}")
 
-                # Evaluate model
-                test_loss, test_accuracy = model.evaluate(x=x_test, y=y_test, verbose=0)
-                print(f"Results on sampled test set: loss = {test_loss:.2f}, accuracy = {test_accuracy:.2f}")
-                full_loss, full_accuracy = model.evaluate(x=x_test_full, y=y_test_full, verbose=0)
-                print(f"Results on full test set: loss = {full_loss:.2f}, accuracy = {full_accuracy:.2f}")
+                    model_path = f'{model_dir}lstm_{n_layer}_{hidden_size}.keras'
+                    with open(result_path, "a") as f:
+                        f.write(f'{dataset},{train_cols},{ii},{n_layer},{hidden_size},{test_loss},{test_accuracy},{test_precision},{test_recall},{full_loss},{full_accuracy},{full_precision},{full_recall},{model_path}\n')
 
-                with open(f"results.csv", "a") as f:
-                    f.write(f'{dataset},{ii},{n_layer},{hidden_size},{test_loss},{test_accuracy},{full_loss},{full_accuracy}\n')
-
-                model.save(f'models/{dataset}/lstm_{n_layer}_{hidden_size}.keras')
+                    model.save(model_path)
 
