@@ -102,12 +102,12 @@ os.system("rm -r models/")
 
 # Define conditions 
 hidden_sizes = [1, 2, 4, 8, 16, 32]
-hidden_sizes = [32] #[1, 2, 4, 8]
+# hidden_sizes = [32] 
 n_layers = [1, 2, 4]
-n_layers = [4] #[1, 2, 4]
+# n_layers = [4] 
 datasets = [
     ("tu7_tib", "1min_data/tib_dataset"),
-    ("tu7_accelerometer", "1min_data/accelerometer_dataset")
+    # ("tu7_accelerometer", "1min_data/accelerometer_dataset")
 ]
 result_path = "results.csv"
 
@@ -133,8 +133,9 @@ for dataset, base_path in datasets:
     start = time.time()
     x, y, mask = load(files, return_full_ts=True)
     means, stds = x[mask].mean(axis=0), x[mask].std(axis=0)
-    label_balance = y[mask].mean()
-    print(f"Calculated means {means} and stds {stds} in {(time.time() - start)/60:.2f}min. Label balance is {label_balance:.2f}")
+    label_balance = y[mask].mean() * 100
+    print(f"Calculated means {means} and stds {stds} in {(time.time() - start)/60:.2f}min.")
+    print(f"{label_balance:.0f}%  of all data is time in bed")
     del x, mask, start
 
     kf = KFold(n_splits=10)
@@ -149,20 +150,20 @@ for dataset, base_path in datasets:
         # Train data
         x_train, y_train, mask_train = load(train_files, train=True, n_samples=100, desc="Load train data")
         x_train[mask_train] = normalize(x_train[mask_train], means, stds)
-        label_balance = y_train[mask_train].mean()
-        print(f"Average train label balance is {label_balance:.2f}")
+        label_balance = y_train[mask_train].mean() * 100
+        print(f"{label_balance:.0f}%  of the sampled training data is time in bed")
 
         # Validation data
         x_valid, y_valid, mask_valid = load(valid_files, train=False, n_samples=30, desc="Load validation data")
         x_valid[mask_valid] = normalize(x_valid[mask_valid], means, stds)
-        label_balance = y_valid[mask_valid].mean()
-        print(f"Average train label balance is {label_balance:.2f}")
+        label_balance = y_valid[mask_valid].mean() * 100
+        print(f"{label_balance:.0f}%  of the sampled validation data is time in bed")
 
         # Test data
         x_test, y_test, mask_test = load(test_files, train=False, n_samples=30, desc="Load test data")
         x_test[mask_test] = normalize(x_test[mask_test], means, stds)
-        label_balance = y_test[mask_test].mean()
-        print(f"Average train label balance is {label_balance:.2f}")
+        label_balance = y_test[mask_test].mean() * 100
+        print(f"{label_balance:.0f}%  of the sampled test data is time in bed")
         x_test_full, y_test_full, mask_test_full = load(test_files, train=False, return_full_ts=True, desc="Load full data")
         x_test_full[mask_test_full] = normalize(x_test_full[mask_test_full], means, stds)
         print(f"Loaded data in {time.time() - start:.2f}s.")
@@ -173,7 +174,7 @@ for dataset, base_path in datasets:
 
                     print(f"{col_dir} columns: Start training with {n_layer} layer and a hidden size of {hidden_size}.")
                     
-                    log_dir = f"logs/fit/lstm_{ii}_{n_layer:02d}_{hidden_size:02d}_{col_dir}"
+                    log_dir = f"logs/{dataset}/{col_dir}/lstm_{n_layer}_{hidden_size:02d}_{ii}"
                     tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
                     early_stopping = EarlyStopping(patience=2, verbose=1, restore_best_weights=True)
 
@@ -211,10 +212,10 @@ for dataset, base_path in datasets:
                     full_loss, full_accuracy, full_precision, full_recall= model.evaluate(x=x_test_full[:,:,train_cols], y=y_test_full, verbose=0)
                     print(f"Results on full test set: loss = {full_loss:.2f}, accuracy = {full_accuracy:.2f}, precision = {full_precision:.2f}, recall = {full_recall:.2f}")
 
-                    model_dir = f"models/{col_dir}/{dataset}/"
-                    if not os.path.exists(model_dir):
-                        os.makedirs(model_dir)
-                    model_path = f'{model_dir}lstm_{n_layer}_{hidden_size}_{ii}.keras'
+                    model_dir = f"models/{dataset}/{col_dir}/"
+                    os.makedirs(model_dir, exist_ok=True)
+
+                    model_path = os.path.join(model_dir, f'lstm_{n_layer}_{hidden_size:02d}_{ii}.keras')
                     with open(result_path, "a") as f:
                         f.write(f'{dataset},"{col_dir}",{ii},{n_layer},{hidden_size},{test_loss},{test_accuracy},{test_precision},{test_recall},{full_loss},{full_accuracy},{full_precision},{full_recall},{model_path}\n')
 
