@@ -6,9 +6,9 @@ Weitz, M., Syed, S., Hopstock, L. A., Morseth, B., André Henriksen, & Horsch,
 A. (2024). Automatic time in bed detection from hip-worn accelerometers for 
 large epidemiological studies: The Tromsø Study. Under review at *PLOS ONE*.
 
-For data access, contact the Tromsø Study Data and Publication Committee 
-(tromsous@uit.no), The Tromsø Study, Department of Community Medicine, Faculty 
-of Health Sciences, UiT The Arctic University of Norway.
+For data access, contact the Tromsø Study. Contact information: The Tromsø 
+Study, Department of Community Medicine, Faculty of Health Sciences, UiT The
+Arctic University of Norway; e-mail: tromsous@uit.no.
 
 
 ## How to use
