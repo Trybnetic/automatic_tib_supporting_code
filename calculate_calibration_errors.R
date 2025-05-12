@@ -17,34 +17,43 @@ opt = parse_args(opt_parser);
 base_path = opt$dir
 output_path = opt$out
 
+# List all .gt3x files in the given directory and subdirectories
 files = list.files(path=base_path, recursive=T, pattern=".gt3x")
+
 #files = sapply(files, function(file_path) {paste(base_path, file_path, sep="/")})
+# Prepend base path to file names (assumes base_path ends with a slash or is handled correctly)
 files = sapply(files, function(file_path) {paste(base_path, file_path, sep="")})
 
+# If the output file already exists, read the list of already processed files
 if(file.exists(output_path)){
     
-    processed_files = read.csv(output_path, sep=";")$file_path
-    files = setdiff(files, processed_files)
+    processed_files = read.csv(output_path, sep=";")$file_path # Extract processed file paths
+    files = setdiff(files, processed_files) # Remove already processed files from the list
     
     print(paste("Found",length(processed_files), "processed files; start processing the remaining", length(files), "files."))
 
 } else {
-    
+    # If output file doesn't exist, write the header line to it
     write("file_path;scale1;scale2;scale3;offset1;offset2;offset3;calibrationerror_start;calibrationerror_end;message", file=output_path)
     
     print(paste("Start processing", length(files), "files."))
     
 }
 
-
+# Loop over all unprocessed files and extract calibration data
 for (file_path in files) {
     tryCatch({
-        res = g.calibrate(file_path)
+        inspection_res = g.inspectfile(file_path) # Run file inspection function before applying aclibration
+        res = g.calibrate(file_path, inspectfileobject= inspection_res) # Calculate calibration parameters and save results
 
-        scale = paste(res$scale, collapse=";")
+        # Format calibration results for writing
+        scale = paste(res$scale, collapse=";") 
         offset = paste(res$offset, collapse=";")
 
+        # Concatenate all fields into one line
         line = paste(file_path, scale, offset, res$cal.error.start, res$cal.error.end, res$QCmessage, sep=";", collapse=";")
+
+        # Append the line to the output file
         write(line, file=output_path, append=TRUE)
     }, warning = function(war) {
         print(paste("Warning:  ", war))
